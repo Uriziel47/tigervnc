@@ -17,6 +17,10 @@
  * USA.
  */
 
+#ifdef DEBUG
+#include <stdio.h>
+#endif
+
 #include <windows.h>
 
 #define XK_MISCELLANY
@@ -42,11 +46,37 @@ static DWORD thread_id;
 static HHOOK hook = 0;
 static HWND target_wnd = 0;
 
+static void open_close_win_start_menu() {
+  Sleep(200);
+  keybd_event( VK_LWIN,
+               0x45,
+               KEYEVENTF_EXTENDEDKEY | 0,
+               0 );
+
+  keybd_event( VK_LWIN,
+               0x45,
+               KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYUP,
+               0);
+
+  Sleep(200);
+  keybd_event( VK_ESCAPE,
+               0x45,
+               KEYEVENTF_EXTENDEDKEY | 0,
+               0 );
+
+  keybd_event( VK_ESCAPE,
+               0x45,
+               KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYUP,
+               0);
+
+}
+
 static int is_system_hotkey(int vkCode) {
   switch (vkCode) {
   case VK_LWIN:
   case VK_RWIN:
   case VK_SNAPSHOT:
+  case 0x4c: // L key
     return 1;
   case VK_TAB:
     if (GetAsyncKeyState(VK_MENU) & 0x8000)
@@ -64,7 +94,6 @@ static LRESULT CALLBACK keyboard_hook(int nCode, WPARAM wParam, LPARAM lParam)
 {
   if (nCode >= 0) {
     KBDLLHOOKSTRUCT* msgInfo = (KBDLLHOOKSTRUCT*)lParam;
-
     // Grabbing everything seems to mess up some keyboard state that
     // FLTK relies on, so just grab the keys that we normally cannot.
     if (is_system_hotkey(msgInfo->vkCode)) {
@@ -91,10 +120,22 @@ static DWORD WINAPI keyboard_thread(LPVOID data)
   // If something goes wrong then there is not much we can do.
   // Just sit around and wait for WM_QUIT...
 
+  #ifdef DEBUG
+  fprintf(stderr, "Starting hook\n");
+  fflush(stderr);
+  #endif
+
   while (GetMessage(&msg, NULL, 0, 0));
+
+  #ifdef DEBUG
+  fprintf(stderr, "Ending hook\n");
+  fflush(stderr);
+  #endif
 
   if (hook)
     UnhookWindowsHookEx(hook);
+
+  open_close_win_start_menu();
 
   target_wnd = 0;
 
