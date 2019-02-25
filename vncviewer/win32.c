@@ -17,6 +17,8 @@
  * USA.
  */
 
+#define DEBUG
+
 #ifdef DEBUG
 #include <stdio.h>
 #endif
@@ -46,6 +48,8 @@ static DWORD thread_id;
 static HHOOK hook = 0;
 static HWND target_wnd = 0;
 
+static int winkey_pressed = 1;
+
 static void open_close_win_start_menu() {
   Sleep(200);
   keybd_event( VK_LWIN,
@@ -71,10 +75,29 @@ static void open_close_win_start_menu() {
 
 }
 
-static int is_system_hotkey(int vkCode) {
+static void release_lwin() {
+  keybd_event( VK_LWIN,
+               0x45,
+               KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYUP,
+               0);
+}
+
+static int is_win_hotkey(int vkCode){
   switch (vkCode) {
   case VK_LWIN:
   case VK_RWIN:
+    /* winkey_pressed = flags & 0x80; */
+    return 1;
+  }
+  return 0;
+}
+static int is_system_hotkey(int vkCode, int flags) {
+  switch (vkCode) {
+  case VK_LWIN:
+  case VK_RWIN:
+    winkey_pressed = flags & (1 << 7);
+    fflush(stderr);
+    return 1;
   case VK_SNAPSHOT:
   case 0x4c: // L key
     return 1;
@@ -96,7 +119,22 @@ static LRESULT CALLBACK keyboard_hook(int nCode, WPARAM wParam, LPARAM lParam)
     KBDLLHOOKSTRUCT* msgInfo = (KBDLLHOOKSTRUCT*)lParam;
     // Grabbing everything seems to mess up some keyboard state that
     // FLTK relies on, so just grab the keys that we normally cannot.
-    if (is_system_hotkey(msgInfo->vkCode)) {
+
+    fprintf(stderr, "%I64d msgInfo->vkCode: %ld\n", wParam, msgInfo->vkCode);
+    fprintf(stderr, "%I64d msgInfo->pressed: %ld\n", lParam, msgInfo->flags & 0x80);
+    fflush(stderr);
+
+    int key_released = msgInfo->flags & 0x80;
+    key_released = 1;
+
+    if (is_win_hotkey(msgInfo->vkCode) && key_released > 0) {
+      release_lwin();
+      fprintf(stderr, "In winkey pressed\n");
+      fflush(stderr);
+      /* return 1; */
+    }
+
+    if (is_system_hotkey(msgInfo->vkCode, msgInfo->flags) || winkey_pressed == 0) {
       PostMessage(target_wnd, wParam, msgInfo->vkCode,
                   (msgInfo->scanCode & 0xff) << 16 |
                   (msgInfo->flags & 0xff) << 24);
@@ -104,6 +142,7 @@ static LRESULT CALLBACK keyboard_hook(int nCode, WPARAM wParam, LPARAM lParam)
     }
   }
 
+  /* return 1; */
   return CallNextHookEx(hook, nCode, wParam, lParam);
 }
 
@@ -135,7 +174,7 @@ static DWORD WINAPI keyboard_thread(LPVOID data)
   if (hook)
     UnhookWindowsHookEx(hook);
 
-  open_close_win_start_menu();
+  /* open_close_win_start_menu(); */
 
   target_wnd = 0;
 
@@ -270,6 +309,8 @@ int win32_vkey_to_keysym(UINT vkey, int extended)
   // Start with keys that either don't generate a symbol, or
   // generate the same symbol as some other key.
   for (i = 0;i < sizeof(vkey_map)/sizeof(vkey_map[0]);i++) {
+    /* fprintf(stderr, "vKey, extended, result:\t%d\t%d\t%d\n", vkey, extended, vkey_map[i][0]); */
+    /* fflush(stderr); */
     if (vkey == vkey_map[i][0]) {
       if (extended)
         return vkey_map[i][2];
